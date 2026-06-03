@@ -1,13 +1,11 @@
-import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
 from app.db.database import base
 
 
 class UserModel(base):
     __tablename__ = "users"
 
-    uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)

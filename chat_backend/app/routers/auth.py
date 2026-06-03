@@ -7,7 +7,7 @@ from app.schemas.user import (
     LoginRequest, UserResponse,
 )
 from app.repositories.user import (
-    get_user_by_email, create_user, verify_user, get_user_by_uuid,
+    get_user_by_email, create_user, verify_user, get_user_by_id,
 )
 from app.repositories.otp import create_otp, get_valid_otp, mark_otp_used
 from app.services.otp_service import generate_otp, send_otp_email
@@ -45,7 +45,7 @@ async def register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     """
     Registers a new user (unverified). Sends a 6-digit OTP to their email.
     If the email already belongs to a verified user, returns 409 Conflict.
-    If the email exists but is unverified (previous attempt), resends OTP.
+    If the email exists but is unverified, resends OTP.
     """
     existing = get_user_by_email(payload.email, db)
 
@@ -55,11 +55,10 @@ async def register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
             detail="Email is already registered. Use /auth/login instead.",
         )
 
-    # Create user record if not present, or reuse existing unverified record
     if not existing:
         user = create_user(username=payload.username, email=payload.email, db=db)
     else:
-        user = existing  # unverified — just resend OTP
+        user = existing
 
     otp_code = generate_otp()
     create_otp(email=payload.email, otp_code=otp_code, db=db)
@@ -91,10 +90,7 @@ async def register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     summary="Verify OTP and activate account",
 )
 def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)):
-    """
-    Validates the OTP code for the given email.
-    On success: marks user as verified and returns their profile with UUID.
-    """
+    """Validates the OTP code. Marks user as verified and returns profile with integer ID."""
     otp_record = get_valid_otp(email=payload.email, otp_code=payload.otp, db=db)
 
     if not otp_record:
@@ -123,11 +119,6 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)):
     summary="Resend OTP to an unverified email",
 )
 async def resend_otp(payload: CheckEmailRequest, db: Session = Depends(get_db)):
-    """
-    Resends a fresh OTP to an unverified user's email.
-    Returns 404 if the email is not registered.
-    Returns 409 if the user is already verified.
-    """
     user = get_user_by_email(payload.email, db)
 
     if not user:
@@ -169,10 +160,7 @@ async def resend_otp(payload: CheckEmailRequest, db: Session = Depends(get_db)):
     summary="Login with a registered email",
 )
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    """
-    For already-verified users. Returns the user's UUID and profile.
-    Use the returned UUID as identity in conversation and WebSocket calls.
-    """
+    """For verified users. Returns the user's sequential integer primary key id."""
     user = get_user_by_email(payload.email, db)
 
     if not user:
@@ -191,23 +179,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────
-# GET /auth/me/{user_uuid}
+# GET /auth/me/{user_id}
 # ─────────────────────────────────────────────────────────────
 @router.get(
-    "/me/{user_uuid}",
+    "/me/{user_id}",
     response_model=UserResponse,
-    summary="Get user profile by UUID",
+    summary="Get user profile by primary key integer ID",
 )
-def get_me(user_uuid: str, db: Session = Depends(get_db)):
-    """Fetch any user's public profile by their UUID."""
-    from uuid import UUID as PyUUID
-    try:
-        uid = PyUUID(user_uuid)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid UUID format.")
-
-    user = get_user_by_uuid(uid, db)
+def get_me(user_id: int, db: Session = Depends(get_db)):
+    """Fetch user profile information directly by their sequential integer primary key ID."""
+    user = get_user_by_id(user_id, db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-
     return user

@@ -9,7 +9,6 @@ OTP_EXPIRE_MINUTES = int(os.getenv("OTP_EXPIRE_MINUTES", 10))
 
 def create_otp(email: str, otp_code: str, db: Session) -> OtpModel:
     """Invalidate any previous unused OTPs for this email, then create a new one."""
-    # Invalidate old OTPs
     db.query(OtpModel).filter(
         and_(OtpModel.email == email, OtpModel.is_used == "false")
     ).update({"is_used": "expired"})

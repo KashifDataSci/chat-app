@@ -1,70 +1,47 @@
-# Chat Backend API
+Based on your new structure, you have shifted from a 1-on-1 direct conversation flow to a Group/Room-based chat flow with a vastly simplified registration setup (/user/enter via email, matching your updated SQL tables).
 
-A simple chat backend for React Native using FastAPI, PostgreSQL/Supabase with email-based user entry and ID-based chat.
+Let's rewrite the README to match your exact current endpoints, message formats, database schema, and technical flow perfectly.
 
-## Features
+Chat Backend API
+A minimalist, high-performance chat backend for React Native built using FastAPI, SQLAlchemy, and PostgreSQL/Supabase. It utilizes sequential auto-incrementing integer IDs (1, 2, 3...) instead of complex UUIDs, handling user entry with email verification and room-based WebSocket broadcasting.
 
-- Email-based user entry (auto-creates user if not exists)
-- Create chat rooms
-- Participant tracking for rooms (users can join/leave rooms)
-- WebSocket real-time messaging
-- Message history
-- User-centric endpoints for managing chats based on user IDs
+🚀 Features
+Email-Based User Entry: Instantly sign up or log in via email. If a user doesn't exist, the system automatically creates their record and returns their unique integer ID.
 
-## API Endpoints
+Room-Based Architecture: Create public or private chat rooms managed dynamically by an explicit table of room participants.
 
-### User
+Real-Time Subscriptions: WebSocket connections bind directly to a room_id for instant group messaging and automated online state syncs.
 
-- `POST /api/user/enter` - Enter with email, returns user info with id
+Scannable Tracking: Easily retrieve message history, current active rooms, and participants tied to an explicit user.
 
-### Chat (Room-based)
+🛠️ API Endpoints
+👥 User Endpoints
+POST /api/user/enter
 
-- `GET /api/chat/rooms` - List all chat rooms
-- `POST /api/chat/rooms?name=RoomName&created_by=UserId` - Create a chat room
-- `GET /api/chat/{room_id}` - Get messages from room
-- `GET /api/chat/{room_id}/participants` - Get participants in a room
-- `POST /api/chat/{room_id}/participants/{userId}` - Add user to room
-- `DELETE /api/chat/{room_id}/participants/{userId}` - Remove user from room
-- `GET /api/chat/users/{userId}/rooms` - Get rooms where user is a participant
+Description: Enter with an email address.
 
-### Chat (WebSocket)
+Payload: { "email": "user@example.com", "name": "Kashif" }
 
-- `WS /api/chat/ws/{room_id}` - WebSocket for real-time chat. Validates room exists before connecting; rejects with code 4004 if not found.
+Returns: Full user profile containing the auto-incremented primary key id.
 
-## WebSocket Message Format
+💬 Chat (Room-Based) Endpoints
+GET /api/chat/rooms - List all available chat rooms on the server.
 
-Send JSON: `{"sender_id": 1, "message": "Hello!"}`
+POST /api/chat/rooms?name=RoomName&created_by=UserId - Create a new chat room.
 
-## Flow
+GET /api/chat/{room_id} - Fetch all historical message logs from a specific room.
 
-1. User enters with email → get user id
-2. Create chat room with user id
-3. Add other users as participants to the room
-4. Other users join with their email → get their user id  
-5. Connect to WebSocket with room_id
-6. Send messages by user id
+GET /api/chat/{room_id}/participants - View a complete list of users registered inside a room.
 
-## Setup
+POST /api/chat/{room_id}/participants/{userId} - Add or invite a user into a chat room.
 
-```bash
-pip install -r requirements.txt
-# Update .env with your DATABASE_URL
-python run.py
-```
+DELETE /api/chat/{room_id}/participants/{userId} - Remove a participant from a room or leave it.
 
-## Database Schema
+GET /api/chat/users/{userId}/rooms - List all rooms where the specific user is a participant.
 
-```sql
-users table: id, email, name, created_at
-chat_rooms table: id, name, created_by
-messages table: id, chat_room_id, sender_id, message, created_at
-room_participants table: user_id (FK to users.id), room_id (FK to chat_rooms.id) [Primary Key: user_id, room_id]
-```
+🔌 WebSocket Connection
+WS /api/chat/ws/{room_id}
 
-## Database Schema
+Description: Opens a persistent stateful duplex pipeline for real-time messaging.
 
-```sql
-users table: id, email, name, created_at
-chat_rooms table: id, name, created_by
-messages table: id, chat_room_id, sender_id, message, created_at
-```
+Guardrails: Validates room existence prior to connection upgrading; instantly rejects with close code 4004 if the target room_id does not exist.

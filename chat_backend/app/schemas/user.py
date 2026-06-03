@@ -1,6 +1,5 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from uuid import UUID
 
 
 # ── Registration ──────────────────────────────────────────────
@@ -31,7 +30,7 @@ class CheckEmailResponse(BaseModel):
 
 # ── Responses ─────────────────────────────────────────────────
 class UserResponse(BaseModel):
-    uuid: UUID
+    id: int  # Clean auto-incrementing primary key integer
     username: str
     email: EmailStr
     is_verified: bool

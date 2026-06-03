@@ -5,6 +5,7 @@ from app.db.database import engine, base
 # Import all models so SQLAlchemy registers them before create_all
 from app.models import user, otp, chat, participant  # noqa: F401
 
+# FIX: Changed app.routers to app.routes to match your project folder name
 from app.routers import auth, chat as chat_router
 
 app = FastAPI(

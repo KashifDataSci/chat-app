@@ -1,35 +1,31 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from fastapi.concurrency import run_in_threadpool
-from uuid import UUID
 
 from app.db.database import get_db, session_local
 from app.services.connection_manager import manager
 from app.repositories.chat import (
     get_or_create_conversation,
-    get_conversation_by_uuid,
-    get_conversations_for_user,
     get_participants_info,
     save_message,
-    get_messages,
 )
-from app.repositories.user import get_user_by_uuid
+from app.repositories.user import get_user_by_id
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 
 # ─────────────────────────────────────────────────────────────
-# Helper — build conversation response dict
+# Helper — build conversation response dict using IDs
 # ─────────────────────────────────────────────────────────────
 def _build_conversation_response(conv, db: Session) -> dict:
-    participants = get_participants_info(conv.uuid, db)
+    participants = get_participants_info(conv.id, db)
     return {
-        "uuid": str(conv.uuid),
-        "created_by": str(conv.created_by),
+        "id": conv.id,
+        "created_by": conv.created_by,
         "created_at": str(conv.created_at),
         "participants": [
             {
-                "uuid": str(p.uuid),
+                "id": p.id,
                 "username": p.username,
                 "email": p.email,
             }
@@ -39,7 +35,7 @@ def _build_conversation_response(conv, db: Session) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# POST /conversations
+# POST /conversations (Start / Retrieve 1-on-1 Conversation)
 # ─────────────────────────────────────────────────────────────
 @router.post(
     "",
@@ -47,162 +43,62 @@ def _build_conversation_response(conv, db: Session) -> dict:
     summary="Start or retrieve a 1-on-1 conversation",
 )
 def start_conversation(
-    initiator_uuid: UUID,
-    recipient_uuid: UUID,
+    initiator_id: int,
+    recipient_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    Creates a new conversation between two users, or returns the existing one.
-    Both UUIDs must belong to verified users.
-    Pass as query params: ?initiator_uuid=...&recipient_uuid=...
+    Creates a new conversation between two users or returns an existing one.
+    Both IDs must be standard primary key integers.
+    Pass as query params: ?initiator_id=1&recipient_id=2
     """
-    if initiator_uuid == recipient_uuid:
+    if initiator_id == recipient_id:
         raise HTTPException(status_code=400, detail="Cannot start a conversation with yourself.")
 
-    initiator = get_user_by_uuid(initiator_uuid, db)
+    initiator = get_user_by_id(initiator_id, db)
     if not initiator or not initiator.is_verified:
         raise HTTPException(status_code=404, detail="Initiator user not found or not verified.")
 
-    recipient = get_user_by_uuid(recipient_uuid, db)
+    recipient = get_user_by_id(recipient_id, db)
     if not recipient or not recipient.is_verified:
         raise HTTPException(status_code=404, detail="Recipient user not found or not verified.")
 
-    conv = get_or_create_conversation(initiator_uuid, recipient_uuid, db)
+    conv = get_or_create_conversation(initiator_id, recipient_id, db)
     return _build_conversation_response(conv, db)
 
 
 # ─────────────────────────────────────────────────────────────
-# GET /conversations?user_uuid=
+# WebSocket  /ws/{conv_id}?user_id=
 # ─────────────────────────────────────────────────────────────
-@router.get(
-    "",
-    summary="List all conversations for a user",
-)
-def list_conversations(
-    user_uuid: UUID = Query(..., description="UUID of the requesting user"),
-    db: Session = Depends(get_db),
-):
-    """Returns all conversations the user is participating in, with participant details."""
-    user = get_user_by_uuid(user_uuid, db)
-    if not user or not user.is_verified:
-        raise HTTPException(status_code=404, detail="User not found or not verified.")
-
-    conversations = get_conversations_for_user(user_uuid, db)
-    return [_build_conversation_response(c, db) for c in conversations]
-
-
-# ─────────────────────────────────────────────────────────────
-# GET /conversations/{conv_uuid}
-# ─────────────────────────────────────────────────────────────
-@router.get(
-    "/{conv_uuid}",
-    summary="Get conversation details",
-)
-def get_conversation(conv_uuid: UUID, db: Session = Depends(get_db)):
-    """Returns conversation metadata and participant info."""
-    conv = get_conversation_by_uuid(conv_uuid, db)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-    return _build_conversation_response(conv, db)
-
-
-# ─────────────────────────────────────────────────────────────
-# GET /conversations/{conv_uuid}/messages
-# ─────────────────────────────────────────────────────────────
-@router.get(
-    "/{conv_uuid}/messages",
-    summary="Fetch message history",
-)
-def get_conversation_messages(
-    conv_uuid: UUID,
-    limit: int = Query(100, ge=1, le=500, description="Max messages to return"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    db: Session = Depends(get_db),
-):
-    """
-    Returns paginated message history for a conversation, ordered oldest-first.
-    Use limit/offset for pagination.
-    """
-    conv = get_conversation_by_uuid(conv_uuid, db)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-
-    messages = get_messages(conv_uuid, db, limit=limit, offset=offset)
-    return {
-        "conversation_uuid": str(conv_uuid),
-        "total_returned": len(messages),
-        "offset": offset,
-        "limit": limit,
-        "messages": messages,
-    }
-
-
-# ─────────────────────────────────────────────────────────────
-# WebSocket  /ws/{conv_uuid}?user_uuid=
-# ─────────────────────────────────────────────────────────────
-@router.websocket("/ws/{conv_uuid}")
+@router.websocket("/ws/{conv_id}")
 async def websocket_chat(
     websocket: WebSocket,
-    conv_uuid: str,
-    user_uuid: str = Query(..., description="UUID of the connecting user"),
+    conv_id: int,
+    user_id: int = Query(..., description="Integer ID of the connecting user"),
 ):
     """
-    Real-time WebSocket endpoint for a conversation.
+    Real-time minimalist WebSocket endpoint for 1-on-1 communication using integer routing variables.
 
-    Connect: ws://<host>/api/conversations/ws/{conv_uuid}?user_uuid={user_uuid}
-
-    Send JSON:  { "content": "Hello!" }
-    Receive JSON:
-    {
-        "uuid": "...",
-        "conversation_uuid": "...",
-        "sender_uuid": "...",
-        "sender_name": "John",
-        "content": "Hello!",
-        "created_at": "..."
-    }
-    System events (type field set):
-        { "type": "joined",  "user_uuid": "...", "username": "...", "online": 2 }
-        { "type": "left",    "user_uuid": "...", "username": "...", "online": 1 }
-        { "type": "error",   "detail": "..." }
+    Connect: ws://<host>/api/conversations/ws/{conv_id}?user_id={user_id}
+    Send JSON:    { "content": "Hello!" }
     """
     db = session_local()
+    conv_str_id = str(conv_id)  # String representation tracking format for connection manager layout
 
-    # ── Validate conversation ────────────────────────────────
-    try:
-        conv_id = UUID(conv_uuid)
-    except ValueError:
-        await websocket.close(code=4000, reason="Invalid conversation UUID.")
-        db.close()
-        return
-
-    conv = get_conversation_by_uuid(conv_id, db)
-    if not conv:
-        await websocket.close(code=4004, reason="Conversation not found.")
-        db.close()
-        return
-
-    # ── Validate user ────────────────────────────────────────
-    try:
-        u_id = UUID(user_uuid)
-    except ValueError:
-        await websocket.close(code=4000, reason="Invalid user UUID.")
-        db.close()
-        return
-
-    user = get_user_by_uuid(u_id, db)
+    # ── Validate user existence ──────────────────────────────
+    user = get_user_by_id(user_id, db)
     if not user or not user.is_verified:
         await websocket.close(code=4003, reason="User not found or not verified.")
         db.close()
         return
 
     # ── Accept & join ────────────────────────────────────────
-    await manager.connect(conv_uuid, websocket)
-    online_count = manager.get_online_count(conv_uuid)
+    await manager.connect(conv_str_id, websocket)
+    online_count = manager.get_online_count(conv_str_id)
 
-    await manager.broadcast(conv_uuid, {
+    await manager.broadcast(conv_str_id, {
         "type": "joined",
-        "user_uuid": str(user.uuid),
+        "user_id": user.id,
         "username": user.username,
         "online": online_count,
     })
@@ -218,24 +114,24 @@ async def websocket_chat(
                 continue
 
             new_msg, sender_name = await run_in_threadpool(
-                save_message, conv_id, u_id, content, db
+                save_message, conv_id, user_id, content, db
             )
 
-            await manager.broadcast(conv_uuid, {
-                "uuid": str(new_msg.uuid),
-                "conversation_uuid": str(new_msg.conversation_uuid),
-                "sender_uuid": str(new_msg.sender_uuid),
+            await manager.broadcast(conv_str_id, {
+                "id": new_msg.id,
+                "conversation_id": new_msg.conversation_id,
+                "sender_id": new_msg.sender_id,
                 "sender_name": sender_name,
                 "content": new_msg.content,
                 "created_at": str(new_msg.created_at),
             })
 
     except WebSocketDisconnect:
-        manager.disconnect(conv_uuid, websocket)
-        online_count = manager.get_online_count(conv_uuid)
-        await manager.broadcast(conv_uuid, {
+        manager.disconnect(conv_str_id, websocket)
+        online_count = manager.get_online_count(conv_str_id)
+        await manager.broadcast(conv_str_id, {
             "type": "left",
-            "user_uuid": str(user.uuid),
+            "user_id": user.id,
             "username": user.username,
             "online": online_count,
         })

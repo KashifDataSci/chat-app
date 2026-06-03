@@ -1,14 +1,14 @@
 from sqlalchemy.orm import Session
 from app.models.user import UserModel
-from uuid import UUID
 
 
 def get_user_by_email(email: str, db: Session) -> UserModel | None:
     return db.query(UserModel).filter(UserModel.email == email).first()
 
 
-def get_user_by_uuid(user_uuid: UUID, db: Session) -> UserModel | None:
-    return db.query(UserModel).filter(UserModel.uuid == user_uuid).first()
+def get_user_by_id(user_id: int, db: Session) -> UserModel | None:
+    """Fetch user profile based on the sequential integer primary key."""
+    return db.query(UserModel).filter(UserModel.id == user_id).first()
 
 
 def create_user(username: str, email: str, db: Session) -> UserModel:

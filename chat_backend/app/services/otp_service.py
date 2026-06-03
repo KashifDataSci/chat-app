@@ -37,8 +37,8 @@ async def send_otp_email(recipient_email: str, otp_code: str, username: str) -> 
              This code expires in <strong>{OTP_EXPIRE_MINUTES} minutes</strong>.</p>
           <div style="text-align: center; margin: 28px 0;">
             <span style="display: inline-block; font-size: 36px; font-weight: bold;
-                         letter-spacing: 10px; color: #4F46E5; background: #EEF2FF;
-                         padding: 16px 28px; border-radius: 8px;">
+                        letter-spacing: 10px; color: #4F46E5; background: #EEF2FF;
+                        padding: 16px 28px; border-radius: 8px;">
               {otp_code}
             </span>
           </div>

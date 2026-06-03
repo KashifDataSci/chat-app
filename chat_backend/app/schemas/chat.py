@@ -1,17 +1,16 @@
 from pydantic import BaseModel
 from datetime import datetime
-from uuid import UUID
 from typing import List
 
 
 # ── Conversation ──────────────────────────────────────────────
 class ConversationCreateRequest(BaseModel):
-    initiator_uuid: UUID
-    recipient_uuid: UUID
+    initiator_id: int
+    recipient_id: int
 
 
 class ParticipantInfo(BaseModel):
-    uuid: UUID
+    id: int
     username: str
     email: str
 
@@ -20,8 +19,8 @@ class ParticipantInfo(BaseModel):
 
 
 class ConversationResponse(BaseModel):
-    uuid: UUID
-    created_by: UUID
+    id: int
+    created_by: int
     created_at: datetime
     participants: List[ParticipantInfo] = []
 
@@ -31,9 +30,9 @@ class ConversationResponse(BaseModel):
 
 # ── Messages ──────────────────────────────────────────────────
 class MessageResponse(BaseModel):
-    uuid: UUID
-    conversation_uuid: UUID
-    sender_uuid: UUID
+    id: int
+    conversation_id: int
+    sender_id: int
     sender_name: str
     content: str
     created_at: datetime
