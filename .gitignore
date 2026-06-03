@@ -1,0 +1,43 @@
+# Environment variables and credentials (CRITICAL: Do not commit!)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+pyvenv.cfg
+
+# Python Cache & Compiled Code
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+.coverage.*
+.cache/
+htmlcov/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
