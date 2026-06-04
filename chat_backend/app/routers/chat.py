@@ -14,10 +14,10 @@ from app.repositories.chat import (
 from app.repositories.user import get_user_by_email, get_or_create_user_by_email, get_user_by_uuid
 
 
-def _save_message_threadsafe(conv_uuid: str, sender_uuid: str, content: str):
+def _save_message_threadsafe(conv_uuid: str, sender_uuid: str, content: str, iv: str, authtag: str):
     """Save a websocket message in a separate DB session for thread safety."""
     with session_local() as db:
-        return save_message(conv_uuid, sender_uuid, content, db)
+        return save_message(conv_uuid, sender_uuid, content, iv, authtag, db)
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
@@ -157,13 +157,15 @@ async def websocket_chat(
         while True:
             data = await websocket.receive_json()
             content = data.get("content", "").strip()
+            iv = data.get("iv", "").strip()
+            authtag = data.get("authtag", "").strip()
 
             if not content:
                 await websocket.send_json({"type": "error", "detail": "Empty message ignored."})
                 continue
 
             new_msg, sender_data = await run_in_threadpool(
-                _save_message_threadsafe, conv_id, user.uuid, content
+                _save_message_threadsafe, conv_id, user.uuid, content, iv, authtag
             )
 
             await manager.broadcast(conv_id, {
@@ -172,6 +174,8 @@ async def websocket_chat(
                 "sender_id": user_uuid_str,
                 "sender_data": sender_data,
                 "content": new_msg.content,
+                "iv": new_msg.iv,
+                "authtag": new_msg.authtag,
                 "created_at": str(new_msg.created_at),
             })
 

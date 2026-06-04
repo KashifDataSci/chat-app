@@ -93,13 +93,15 @@ def get_participants_info(conv_uuid, db: Session) -> List[UserModel]:
 # ─────────────────────────────────────────────────────────────
 
 def save_message(
-    conv_uuid, sender_uuid, content: str, db: Session
+    conv_uuid, sender_uuid, content: str, iv: str, authtag: str, db: Session
 ) -> tuple[MessageModel, str]:
-    """Save a clean text message linked via UUID tracking attributes."""
+    """Save an encrypted message linked via UUID tracking attributes."""
     msg = MessageModel(
         conversation_uuid=conv_uuid,
         sender_uuid=sender_uuid,
         content=content,
+        iv=iv,
+        authtag=authtag,
     )
     db.add(msg)
     db.commit()
@@ -150,6 +152,8 @@ def get_user_conversations(user_uuid, db: Session) -> List[dict]:
             last_message_data = {
                 "id": str(last_msg.uuid),
                 "content": last_msg.content,
+                "iv": last_msg.iv,
+                "authtag": last_msg.authtag,
                 "sender_data": {
                     "data": sender.data if sender else None,
                     "iv": sender.iv if sender else None,
@@ -205,6 +209,8 @@ def get_conversation_messages(conv_uuid, db: Session) -> List[dict]:
                 "authtag": sender.authtag if sender else None,
             },
             "content": msg.content,
+            "iv": msg.iv,
+            "authtag": msg.authtag,
             "created_at": str(msg.created_at),
         })
     return result

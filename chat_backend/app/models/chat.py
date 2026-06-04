@@ -19,4 +19,6 @@ class MessageModel(base):
     conversation_uuid = Column(UUID(as_uuid=True), ForeignKey("conversations.uuid"), nullable=False)
     sender_uuid = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     content = Column(Text, nullable=False)
+    iv = Column(Text, nullable=True)
+    authtag = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
