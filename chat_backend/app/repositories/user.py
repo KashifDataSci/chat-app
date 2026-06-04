@@ -30,12 +30,25 @@ def verify_user(email: str, db: Session) -> UserModel | None:
 
 def get_or_create_user_by_email(email: str, db: Session) -> UserModel:
     """Find existing user by email or create a new user.
-    Used to auto-provision users from the frontend (N8N-managed users)."""
+    Used to auto-provision users from the frontend."""
     user = get_user_by_email(email, db)
     if user:
         return user
     user = UserModel(email=email)
     db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def update_user_profile(email: str, data: str, iv: str, authtag: str, db: Session) -> UserModel | None:
+    """Update a user's encrypted profile data (name + image cipher)."""
+    user = get_user_by_email(email, db)
+    if not user:
+        return None
+    user.data = data
+    user.iv = iv
+    user.authtag = authtag
     db.commit()
     db.refresh(user)
     return user

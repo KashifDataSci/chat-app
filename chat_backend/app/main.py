@@ -7,6 +7,7 @@ from app.models import user, otp, chat, participant  # noqa: F401
 
 from app.routers import chat as chat_router
 from app.routers import user as user_router
+from app.routers import auth as auth_router
 
 app = FastAPI(
     title="Chat Backend API",
@@ -29,6 +30,7 @@ base.metadata.create_all(bind=engine)
 # ── Routers ──────────────────────────────────────────────────
 app.include_router(chat_router.router)
 app.include_router(user_router.router)
+app.include_router(auth_router.router)
 
 
 # ── Health check ─────────────────────────────────────────────
