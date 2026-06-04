@@ -1,11 +1,13 @@
-from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy import Column, String, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
 from app.db.database import base
+import uuid
 
 
 class OtpModel(base):
     __tablename__ = "otps"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     email = Column(String, nullable=False, index=True)
     otp_code = Column(String(6), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)

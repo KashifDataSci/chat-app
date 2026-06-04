@@ -8,25 +8,35 @@ from app.repositories.chat import (
     get_or_create_conversation,
     get_participants_info,
     save_message,
+    get_user_conversations,
+    get_conversation_messages,
 )
-from app.repositories.user import get_user_by_id
+from app.repositories.user import get_user_by_email, get_or_create_user_by_email, get_user_by_uuid
+
+
+def _save_message_threadsafe(conv_uuid: str, sender_uuid: str, content: str):
+    """Save a websocket message in a separate DB session for thread safety."""
+    with session_local() as db:
+        return save_message(conv_uuid, sender_uuid, content, db)
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 
 # ─────────────────────────────────────────────────────────────
-# Helper — build conversation response dict using IDs
+# Helper — build conversation response dict using UUIDs
 # ─────────────────────────────────────────────────────────────
 def _build_conversation_response(conv, db: Session) -> dict:
-    participants = get_participants_info(conv.id, db)
+    participants = get_participants_info(conv.uuid, db)
     return {
-        "id": conv.id,
-        "created_by": conv.created_by,
+        "id": str(conv.uuid),
+        "created_by": str(conv.created_by),
         "created_at": str(conv.created_at),
         "participants": [
             {
-                "id": p.id,
-                "username": p.username,
+                "id": str(p.uuid),
+                "data": p.data,
+                "iv": p.iv,
+                "authtag": p.authtag,
                 "email": p.email,
             }
             for p in participants
@@ -36,6 +46,7 @@ def _build_conversation_response(conv, db: Session) -> dict:
 
 # ─────────────────────────────────────────────────────────────
 # POST /conversations (Start / Retrieve 1-on-1 Conversation)
+# Uses EMAIL to identify users (since frontend uses N8N, not this backend's auth)
 # ─────────────────────────────────────────────────────────────
 @router.post(
     "",
@@ -43,63 +54,101 @@ def _build_conversation_response(conv, db: Session) -> dict:
     summary="Start or retrieve a 1-on-1 conversation",
 )
 def start_conversation(
-    initiator_id: int,
-    recipient_id: int,
+    initiator_email: str,
+    recipient_email: str = "",
     db: Session = Depends(get_db),
 ):
     """
     Creates a new conversation between two users or returns an existing one.
-    Both IDs must be standard primary key integers.
-    Pass as query params: ?initiator_id=1&recipient_id=2
+    Users are identified by EMAIL (auto-provisioned if they don't exist in the DB).
+    Pass as query params: ?initiator_email=a@b.com&recipient_email=c@d.com
     """
-    if initiator_id == recipient_id:
+    if initiator_email == recipient_email:
         raise HTTPException(status_code=400, detail="Cannot start a conversation with yourself.")
 
-    initiator = get_user_by_id(initiator_id, db)
-    if not initiator or not initiator.is_verified:
-        raise HTTPException(status_code=404, detail="Initiator user not found or not verified.")
+    # Auto-provision users if they don't exist in the backend DB
+    initiator = get_or_create_user_by_email(initiator_email, db)
+    recipient = get_or_create_user_by_email(recipient_email, db)
 
-    recipient = get_user_by_id(recipient_id, db)
-    if not recipient or not recipient.is_verified:
-        raise HTTPException(status_code=404, detail="Recipient user not found or not verified.")
+    conv = get_or_create_conversation(initiator.uuid, recipient.uuid, db)
+    response = _build_conversation_response(conv, db)
 
-    conv = get_or_create_conversation(initiator_id, recipient_id, db)
-    return _build_conversation_response(conv, db)
+    # Include the user's backend UUID so the frontend can use it for WebSocket
+    response["my_uuid"] = str(initiator.uuid)
+    return response
 
 
 # ─────────────────────────────────────────────────────────────
-# WebSocket  /ws/{conv_id}?user_id=
+# GET /conversations/list — List all conversations for a user
+# ─────────────────────────────────────────────────────────────
+@router.get(
+    "/list",
+    summary="List all conversations for a user",
+)
+def list_conversations(
+    user_email: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all conversations the user participates in,
+    including participant info and last message preview.
+    """
+    user = get_user_by_email(user_email, db)
+    if not user:
+        return []
+    return get_user_conversations(user.uuid, db)
+
+
+# ─────────────────────────────────────────────────────────────
+# GET /conversations/{conv_id}/messages — Get message history
+# ─────────────────────────────────────────────────────────────
+@router.get(
+    "/{conv_id}/messages",
+    summary="Get message history for a conversation",
+)
+def get_messages(
+    conv_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all messages in a conversation, ordered by time ascending.
+    """
+    return get_conversation_messages(conv_id, db)
+
+
+# ─────────────────────────────────────────────────────────────
+# WebSocket  /ws/{conv_id}?user_email=
 # ─────────────────────────────────────────────────────────────
 @router.websocket("/ws/{conv_id}")
 async def websocket_chat(
     websocket: WebSocket,
-    conv_id: int,
-    user_id: int = Query(..., description="Integer ID of the connecting user"),
+    conv_id: str,
+    user_email: str = Query(..., description="Email of the connecting user"),
 ):
     """
-    Real-time minimalist WebSocket endpoint for 1-on-1 communication using integer routing variables.
+    Real-time WebSocket endpoint for 1-on-1 communication.
 
-    Connect: ws://<host>/api/conversations/ws/{conv_id}?user_id={user_id}
+    Connect: ws://<host>/api/conversations/ws/{conv_uuid}?user_email={email}
     Send JSON:    { "content": "Hello!" }
     """
     db = session_local()
-    conv_str_id = str(conv_id)  # String representation tracking format for connection manager layout
 
     # ── Validate user existence ──────────────────────────────
-    user = get_user_by_id(user_id, db)
-    if not user or not user.is_verified:
-        await websocket.close(code=4003, reason="User not found or not verified.")
+    user = get_user_by_email(user_email, db)
+    if not user:
+        await websocket.close(code=4003, reason="User not found.")
         db.close()
         return
 
-    # ── Accept & join ────────────────────────────────────────
-    await manager.connect(conv_str_id, websocket)
-    online_count = manager.get_online_count(conv_str_id)
+    user_uuid_str = str(user.uuid)
 
-    await manager.broadcast(conv_str_id, {
+    # ── Accept & join ────────────────────────────────────────
+    await manager.connect(conv_id, websocket)
+    online_count = manager.get_online_count(conv_id)
+
+    await manager.broadcast(conv_id, {
         "type": "joined",
-        "user_id": user.id,
-        "username": user.username,
+        "user_id": user_uuid_str,
         "online": online_count,
     })
 
@@ -113,26 +162,25 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "detail": "Empty message ignored."})
                 continue
 
-            new_msg, sender_name = await run_in_threadpool(
-                save_message, conv_id, user_id, content, db
+            new_msg, sender_data = await run_in_threadpool(
+                _save_message_threadsafe, conv_id, user.uuid, content
             )
 
-            await manager.broadcast(conv_str_id, {
-                "id": new_msg.id,
-                "conversation_id": new_msg.conversation_id,
-                "sender_id": new_msg.sender_id,
-                "sender_name": sender_name,
+            await manager.broadcast(conv_id, {
+                "id": str(new_msg.uuid),
+                "conversation_id": str(new_msg.conversation_uuid),
+                "sender_id": user_uuid_str,
+                "sender_data": sender_data,
                 "content": new_msg.content,
                 "created_at": str(new_msg.created_at),
             })
 
     except WebSocketDisconnect:
-        manager.disconnect(conv_str_id, websocket)
-        online_count = manager.get_online_count(conv_str_id)
-        await manager.broadcast(conv_str_id, {
+        manager.disconnect(conv_id, websocket)
+        online_count = manager.get_online_count(conv_id)
+        await manager.broadcast(conv_id, {
             "type": "left",
-            "user_id": user.id,
-            "username": user.username,
+            "user_id": user_uuid_str,
             "online": online_count,
         })
 

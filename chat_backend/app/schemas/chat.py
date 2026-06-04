@@ -5,12 +5,12 @@ from typing import List
 
 # ── Conversation ──────────────────────────────────────────────
 class ConversationCreateRequest(BaseModel):
-    initiator_id: int
-    recipient_id: int
+    initiator_email: str
+    recipient_email: str
 
 
 class ParticipantInfo(BaseModel):
-    id: int
+    id: str
     username: str
     email: str
 
@@ -19,10 +19,11 @@ class ParticipantInfo(BaseModel):
 
 
 class ConversationResponse(BaseModel):
-    id: int
-    created_by: int
+    id: str
+    created_by: str
     created_at: datetime
     participants: List[ParticipantInfo] = []
+    my_uuid: str = ""
 
     class Config:
         from_attributes = True
@@ -30,9 +31,9 @@ class ConversationResponse(BaseModel):
 
 # ── Messages ──────────────────────────────────────────────────
 class MessageResponse(BaseModel):
-    id: int
-    conversation_id: int
-    sender_id: int
+    id: str
+    conversation_id: str
+    sender_id: str
     sender_name: str
     content: str
     created_at: datetime

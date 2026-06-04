@@ -1,12 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
+from sqlalchemy import Column, String, Boolean, DateTime, func, Integer
+from sqlalchemy.dialects.postgresql import UUID
 from app.db.database import base
+import uuid
 
 
 class UserModel(base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    username = Column(String, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
-    is_verified = Column(Boolean, default=False, nullable=False)
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
+    data = Column(String, nullable=True)
+    iv = Column(String, nullable=True)
+    authtag = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
