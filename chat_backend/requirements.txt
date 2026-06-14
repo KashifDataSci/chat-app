@@ -6,6 +6,6 @@ pydantic[email]
 python-multipart
 python-dotenv
 websockets
-aiosmtplib
+resend[async]
 passlib[bcrypt]
 python-jose[cryptography]

@@ -1,18 +1,13 @@
 import random
 import string
-import aiosmtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
+import resend
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "ChatApp Security")
+resend.api_key = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 OTP_EXPIRE_MINUTES = int(os.getenv("OTP_EXPIRE_MINUTES", 10))
 
 
@@ -22,7 +17,7 @@ def generate_otp(length: int = 6) -> str:
 
 
 async def send_otp_email(recipient_email: str, otp_code: str, username: str) -> None:
-    """Send an OTP verification email via Gmail SMTP."""
+    """Send an OTP verification email via Resend."""
 
     subject = "Your Verification Code"
 
@@ -50,17 +45,12 @@ async def send_otp_email(recipient_email: str, otp_code: str, username: str) -> 
     </html>
     """
 
-    message = MIMEMultipart("alternative")
-    message["Subject"] = subject
-    message["From"] = f"{SMTP_SENDER_NAME} <{SMTP_USER}>"
-    message["To"] = recipient_email
-    message.attach(MIMEText(html_body, "html"))
+    params = {
+        "from": EMAIL_FROM,
+        "to": [recipient_email],
+        "subject": subject,
+        "html": html_body,
+    }
 
-    await aiosmtplib.send(
-        message,
-        hostname=SMTP_HOST,
-        port=SMTP_PORT,
-        username=SMTP_USER,
-        password=SMTP_PASSWORD,
-        start_tls=True,
-    )
+    # Re-raise on failure so the router returns a proper HTTP 500
+    await resend.Emails.send_async(params)

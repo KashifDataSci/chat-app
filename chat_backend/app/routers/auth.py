@@ -5,8 +5,8 @@ from typing import Optional
 
 from app.db.database import get_db
 from app.repositories.user import get_user_by_email, get_or_create_user_by_email, update_user_profile
-from app.repositories.otp import create_otp
-from app.services.otp_service import send_otp_email
+from app.repositories.otp import create_otp, get_valid_otp, mark_otp_used
+from app.services.otp_service import generate_otp, send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -15,11 +15,15 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 class GetEmailBody(BaseModel):
     email: str
-    code: int
 
 
 class GetEmailRequest(BaseModel):
     body: GetEmailBody
+
+
+class VerifyOtpRequest(BaseModel):
+    email: str
+    otp: str
 
 
 class SetUserRequest(BaseModel):
@@ -50,41 +54,66 @@ def _user_to_dict(user) -> dict:
     summary="Login / send OTP — replaces n8n get-email webhook",
 )
 async def get_email(payload: GetEmailRequest, db: Session = Depends(get_db)):
-    """
-    If the user exists AND has profile data → return user row as a list.
-    Otherwise auto-create the user, store the OTP, send the email, and
-    return { message, otp, email } so the frontend navigates to OTP screen.
-    """
     email = payload.body.email.strip().lower()
-    code = str(payload.body.code)
+    print(f"\n[GET-EMAIL] Request received for: {email}")
 
     # Find or auto-create the user
     user = get_or_create_user_by_email(email, db)
+    print(f"[GET-EMAIL] user.data exists: {bool(user.data)}")
 
     # Existing user with profile already set → direct login
     if user.data:
+        print(f"[GET-EMAIL] → Direct login (has profile), skipping OTP")
         return [_user_to_dict(user)]
 
     # New user or profile not set yet → OTP flow
-    # Store the OTP in the database
+    print(f"[GET-EMAIL] → Sending OTP to {email}")
+    code = generate_otp()
     create_otp(email=email, otp_code=code, db=db)
 
-    # Try to send the OTP email
     try:
         await send_otp_email(
             recipient_email=email,
             otp_code=code,
-            username=email.split("@")[0],  # use email prefix as display name
+            username=email.split("@")[0],
         )
+        print(f"[GET-EMAIL] ✅ OTP email sent successfully to {email}")
     except Exception as e:
-        # Log but don't block — the frontend already has the code
-        print(f"[AUTH] Failed to send OTP email: {e}")
+        print(f"[GET-EMAIL] ❌ Failed to send OTP email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send verification email. Please try again.",
+        )
 
     return {
         "message": "OTP sent",
-        "otp": payload.body.code,
         "email": email,
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# POST /auth/verify-otp  — validates OTP server-side
+# ─────────────────────────────────────────────────────────────
+@router.post(
+    "/verify-otp",
+    summary="Verify the OTP code sent to the user's email",
+)
+def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    """
+    Checks the submitted OTP against the database.
+    Marks it as used on success so it cannot be reused.
+    """
+    email = payload.email.strip().lower()
+    otp_record = get_valid_otp(email=email, otp_code=payload.otp.strip(), db=db)
+
+    if not otp_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP. Please request a new code.",
+        )
+
+    mark_otp_used(otp_record.id, db)
+    return {"message": "OTP verified", "email": email}
 
 
 # ─────────────────────────────────────────────────────────────
