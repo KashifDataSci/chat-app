@@ -53,4 +53,9 @@ async def send_otp_email(recipient_email: str, otp_code: str, username: str) -> 
     }
 
     # Re-raise on failure so the router returns a proper HTTP 500
-    await resend.Emails.send_async(params)
+    try:
+        response = await resend.Emails.send_async(params)
+        print(f"[OTP SERVICE] Resend response: {response}")
+    except Exception as exc:
+        print(f"[OTP SERVICE] ❌ Resend error: {type(exc).__name__}: {exc}")
+        raise
